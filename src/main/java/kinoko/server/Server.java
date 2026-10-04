@@ -5,6 +5,7 @@ import kinoko.provider.*;
 import kinoko.script.common.ScriptDispatcher;
 import kinoko.server.cashshop.CashShop;
 import kinoko.server.command.CommandProcessor;
+import kinoko.server.header.InHeader;
 import kinoko.server.node.CentralServerNode;
 import kinoko.server.node.ChannelServerNode;
 import kinoko.server.node.LoginServerNode;
@@ -22,6 +23,23 @@ public final class Server {
     private static CentralServerNode centralServerNode;
 
     public static void main(String[] args) throws Exception {
+        if (args.length > 0) {
+            if (args.length > 2 || !args[0].equals("--seed-jobs")) {
+                throw new IllegalArgumentException("Usage: java -jar target/server.jar [--seed-jobs [seed_acc.json]]");
+            }
+            ItemProvider.initialize();
+            SkillProvider.initialize();
+            StringProvider.initialize();
+            DatabaseManager.initialize();
+            try {
+                final java.nio.file.Path output = java.nio.file.Path.of(args.length == 2 ? args[1] : "seed_acc.json");
+                final var jobs = kinoko.server.dev.JobSeeder.seed(output);
+                log.info("Seeded {} final jobs; account/character mapping: {}", jobs.size(), output.toAbsolutePath());
+            } finally {
+                DatabaseManager.shutdown();
+            }
+            return;
+        }
         Server.initialize();
     }
 
@@ -52,6 +70,18 @@ public final class Server {
         start = Instant.now();
         DatabaseManager.initialize();
         log.info("Loaded database connection in {} milliseconds", Duration.between(start, Instant.now()).toMillis());
+
+        log.info("Dev login {} (DEV_LOGIN), opcode {}", ServerConfig.DEV_LOGIN ? "enabled" : "disabled", String.format("0x%04X", InHeader.DevMigrateIn.getValue()));
+        DatabaseManager.characterAccessor().getFirstCharacterInfo().ifPresentOrElse(character -> {
+            log.info("First character: name={}, accountId={}, characterId={}",
+                    character.getCharacterName(), character.getAccountId(), character.getCharacterId());
+        }, () -> log.info("No stored characters; create a character through normal login first"));
+        for (int channelId = 0; channelId < ServerConfig.CHANNELS_PER_WORLD; channelId++) {
+            log.info("Client dev destination: worldId={}, channelId={} (display channel {}), host={}, port={}",
+                    ServerConfig.WORLD_ID, channelId, channelId + 1,
+                    java.net.InetAddress.getByAddress(ServerConstants.SERVER_HOST).getHostAddress(),
+                    ServerConstants.CHANNEL_PORT + channelId);
+        }
 
         // Initialize ranks
         start = Instant.now();

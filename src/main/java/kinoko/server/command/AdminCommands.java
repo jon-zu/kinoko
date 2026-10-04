@@ -21,6 +21,7 @@ import kinoko.provider.skill.SkillStat;
 import kinoko.provider.skill.SkillStringInfo;
 import kinoko.script.common.ScriptDispatcher;
 import kinoko.server.ServerConfig;
+import kinoko.server.dev.TestItemSet;
 import kinoko.server.cashshop.CashShop;
 import kinoko.server.cashshop.Commodity;
 import kinoko.util.BitFlag;
@@ -61,6 +62,30 @@ public final class AdminCommands {
             user.setConsumeItemEffect(ItemProvider.getItemInfo(2022181).orElseThrow());
             user.dispose();
         });
+    }
+
+    @Command({ "test-set", "testset" })
+    public static void testSet(User user, String[] args) {
+        if (args.length != 1) {
+            user.write(MessagePacket.system("Syntax: %stest-set", ServerConfig.COMMAND_PREFIX));
+            return;
+        }
+        final TestItemSet.Result result;
+        try {
+            result = TestItemSet.giveMissing(user.getCharacterData());
+        } catch (IllegalArgumentException e) {
+            user.write(MessagePacket.system("%s", e.getMessage()));
+            return;
+        }
+        if (!result.operations().isEmpty()) {
+            user.write(WvsContext.inventoryOperation(result.operations(), true));
+        }
+        user.write(MessagePacket.system("Test set for job %d: added %d item types, %d already present.",
+                user.getJob(), result.added(), result.present()));
+        if (!result.noSpace().isEmpty()) {
+            user.write(MessagePacket.system("No inventory space for %d item types. Free slots and run %stest-set again.",
+                    result.noSpace().size(), ServerConfig.COMMAND_PREFIX));
+        }
     }
 
     @Command("dispose")
@@ -575,20 +600,28 @@ public final class AdminCommands {
     }
 
     @Command("stat")
-    @Arguments({ "hp/mp/str/dex/int/luk/ap/sp", "new value" })
+    @Arguments({ "hp/mp/mhp/mmp/str/dex/int/luk/ap/sp", "new value" })
     public static void stat(User user, String[] args) {
         final String stat = args[1].toLowerCase();
         final int value = Integer.parseInt(args[2]);
         final CharacterStat cs = user.getCharacterStat();
         final Map<Stat, Object> statMap = new EnumMap<>(Stat.class);
         switch (stat) {
-            case "hp" -> {
+            case "hp", "mhp" -> {
                 cs.setMaxHp(value);
-                statMap.put(Stat.HP, cs.getMaxHp());
+                statMap.put(Stat.MHP, cs.getMaxHp());
+                if (cs.getHp() < cs.getMaxHp()) {
+                    cs.setHp(cs.getMaxHp());
+                    statMap.put(Stat.HP, cs.getHp());
+                }
             }
-            case "mp" -> {
+            case "mp", "mmp" -> {
                 cs.setMaxMp(value);
-                statMap.put(Stat.MP, cs.getMaxMp());
+                statMap.put(Stat.MMP, cs.getMaxMp());
+                if (cs.getMp() < cs.getMaxMp()) {
+                    cs.setMp(cs.getMaxMp());
+                    statMap.put(Stat.MP, cs.getMp());
+                }
             }
             case "str" -> {
                 cs.setBaseStr((short) value);
@@ -620,7 +653,7 @@ public final class AdminCommands {
                 }
             }
             default -> {
-                user.write(MessagePacket.system("Syntax : %sstat hp/mp/str/dex/int/luk/ap/sp <new value>", ServerConfig.COMMAND_PREFIX));
+                user.write(MessagePacket.system("Syntax : %sstat hp/mp/mhp/mmp/str/dex/int/luk/ap/sp <new value>", ServerConfig.COMMAND_PREFIX));
                 return;
             }
         }

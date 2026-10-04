@@ -321,7 +321,8 @@ public enum InHeader {
     CheckDuplicatedIDInCS(311),
     // END_CHARACTERSALE(312),
     LogoutGiftSelect(313),
-    NO(314);
+    NO(314),
+    DevMigrateIn(315); // Local client development; not part of the v95 protocol
 
     private static final List<InHeader> headers;
     private static final Set<InHeader> ignoreHeaders = Set.of(
@@ -344,7 +345,7 @@ public enum InHeader {
     );
 
     static {
-        final List<InHeader> headerList = new ArrayList<>(Collections.nCopies(NO.getValue() + 1, null));
+        final List<InHeader> headerList = new ArrayList<>(Collections.nCopies(DevMigrateIn.getValue() + 1, null));
         for (InHeader header : values()) {
             headerList.set(header.getValue(), header);
         }
@@ -366,7 +367,7 @@ public enum InHeader {
     }
 
     public static InHeader getByValue(short op) {
-        if (op >= 0 && op < NO.getValue()) {
+        if (op >= 0 && op < headers.size() && op != NO.getValue()) {
             return headers.get(op);
         }
         return null;

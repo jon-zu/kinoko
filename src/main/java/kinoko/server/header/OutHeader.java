@@ -528,7 +528,8 @@ public enum OutHeader {
     ITCNormalItemResult(412),
 
     LogoutGift(432),
-    NO(433);
+    NO(433),
+    DevWorldList(434); // Local client development; not part of the v95 protocol
 
 
     private static final List<OutHeader> headers;
@@ -563,7 +564,7 @@ public enum OutHeader {
     );
 
     static {
-        final List<OutHeader> headerList = new ArrayList<>(Collections.nCopies(NO.getValue() + 1, null));
+        final List<OutHeader> headerList = new ArrayList<>(Collections.nCopies(DevWorldList.getValue() + 1, null));
         for (OutHeader header : values()) {
             headerList.set(header.getValue(), header);
         }
@@ -585,7 +586,7 @@ public enum OutHeader {
     }
 
     public static OutHeader getByValue(short op) {
-        if (op >= 0 && op < NO.getValue()) {
+        if (op >= 0 && op <= DevWorldList.getValue() && op != NO.getValue()) {
             return headers.get(op);
         }
         return null;

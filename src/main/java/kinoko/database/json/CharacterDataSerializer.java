@@ -43,7 +43,7 @@ public final class CharacterDataSerializer implements JsonSerializer<CharacterDa
     public Map<Integer, Instant> deserializeSkillCooltimes(JSONObject object) {
         final Map<Integer, Instant> skillCooltimes = new HashMap<>();
         for (var entry : object.entrySet()) {
-            skillCooltimes.put(Integer.parseInt(entry.getKey()), Instant.ofEpochMilli((Long) entry.getValue()));
+            skillCooltimes.put(Integer.parseInt(entry.getKey()), Instant.ofEpochMilli(((Number) entry.getValue()).longValue()));
         }
         return skillCooltimes;
     }
@@ -99,7 +99,7 @@ public final class CharacterDataSerializer implements JsonSerializer<CharacterDa
     public PopularityRecord deserializePopularityRecord(JSONObject object) {
         final PopularityRecord popularityRecord = new PopularityRecord();
         for (var entry : object.entrySet()) {
-            popularityRecord.addRecord(Integer.parseInt(entry.getKey()), Instant.ofEpochMilli((Long) entry.getValue()));
+            popularityRecord.addRecord(Integer.parseInt(entry.getKey()), Instant.ofEpochMilli(((Number) entry.getValue()).longValue()));
         }
         return popularityRecord;
     }

@@ -27,5 +27,6 @@ public final class ServerConfig {
 
     public static final String COMMAND_PREFIX = Util.getEnv("COMMAND_PREFIX", "!");
     public static final boolean DEBUG_MODE = Util.getEnv("DEBUG_MODE", true);
+    public static final boolean DEV_LOGIN = Util.getEnv("DEV_LOGIN", false);
     public static final boolean PLAIN_TRAFFIC = Util.getEnv("PLAIN_TRAFFIC", false);
 }

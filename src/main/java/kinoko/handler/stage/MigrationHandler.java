@@ -9,12 +9,14 @@ import kinoko.packet.field.TransferChannelType;
 import kinoko.packet.field.TransferFieldType;
 import kinoko.packet.stage.CashShopPacket;
 import kinoko.packet.stage.StagePacket;
+import kinoko.packet.stage.DevPacket;
 import kinoko.packet.user.UserLocal;
 import kinoko.packet.world.FriendPacket;
 import kinoko.packet.world.MemoPacket;
 import kinoko.packet.world.WvsContext;
 import kinoko.provider.MapProvider;
 import kinoko.provider.map.PortalInfo;
+import kinoko.server.ServerConfig;
 import kinoko.server.cashshop.Gift;
 import kinoko.server.field.InstanceFieldStorage;
 import kinoko.server.guild.GuildRequest;
@@ -79,151 +81,200 @@ public final class MigrationHandler {
                 c.close();
                 return;
             }
-            // Load account
-            final MigrationInfo migrationInfo = migrationResult.get();
-            final Optional<Account> accountResult = DatabaseManager.accountAccessor().getAccountById(migrationInfo.getAccountId());
-            if (accountResult.isEmpty()) {
-                log.error("Could not retrieve account with ID : {}", migrationInfo.getAccountId());
-                c.close();
-                return;
-            }
-            final Account account = accountResult.get();
-            if (channelServerNode.isConnected(account)) {
-                log.error("Tried to connect to channel server while already connected");
-                c.close();
-                return;
-            }
-            account.setChannelId(channelServerNode.getChannelId());
-            c.setAccount(account);
+            completeMigrateIn(c, migrationResult.get());
+        });
+    }
 
-            // Load character data
-            final Optional<CharacterData> characterResult = DatabaseManager.characterAccessor().getCharacterById(characterId);
-            if (characterResult.isEmpty()) {
-                log.error("Could not retrieve character with ID : {}", characterId);
-                c.close();
-                return;
+    @Handler(InHeader.DevMigrateIn)
+    public static void handleDevMigrateIn(Client c, InPacket inPacket) {
+        if (!ServerConfig.DEV_LOGIN || c.getAccount() != null || c.getUser() != null || (inPacket.getRemaining() != 18 && inPacket.getRemaining() != 22)) {
+            log.error("Rejected dev login: disabled, already logged in, or invalid packet length");
+            c.close();
+            return;
+        }
+        final int accountId = inPacket.decodeInt();
+        final int characterId = inPacket.decodeInt();
+        final int worldId = Byte.toUnsignedInt(inPacket.decodeByte());
+        final int channelId = Byte.toUnsignedInt(inPacket.decodeByte());
+        final byte[] clientKey = inPacket.decodeArray(8);
+        final Integer spawnMap = inPacket.getRemaining() == 4 ? inPacket.decodeInt() : null;
+        final ChannelServerNode channelServerNode = (ChannelServerNode) c.getServerNode();
+        if (worldId != ServerConfig.WORLD_ID || channelId != channelServerNode.getChannelId()) {
+            log.error("Dev login destination mismatch: world {}, channel {}", worldId, channelId);
+            c.close();
+            return;
+        }
+        if (spawnMap != null && (spawnMap < 0 || channelServerNode.getFieldById(spawnMap).isEmpty())) {
+            log.error("Invalid dev spawn map {}", spawnMap);
+            c.close();
+            return;
+        }
+        // No login-server ticket is needed. Keep a machine ID for later channel transfers.
+        final byte[] machineId = new byte[16];
+        c.setMachineId(machineId);
+        c.setClientKey(clientKey);
+        completeMigrateIn(c, MigrationInfo.from(channelId, accountId, characterId, machineId, clientKey), true, spawnMap);
+    }
+
+    private static void completeMigrateIn(Client c, MigrationInfo migrationInfo) {
+        completeMigrateIn(c, migrationInfo, false, null);
+    }
+
+    private static void completeMigrateIn(Client c, MigrationInfo migrationInfo, boolean devLogin, Integer spawnMap) {
+        final ChannelServerNode channelServerNode = (ChannelServerNode) c.getServerNode();
+        final int characterId = migrationInfo.getCharacterId();
+        // Load account
+        final Optional<Account> accountResult = DatabaseManager.accountAccessor().getAccountById(migrationInfo.getAccountId());
+        if (accountResult.isEmpty()) {
+            log.error("Could not retrieve account with ID : {}", migrationInfo.getAccountId());
+            c.close();
+            return;
+        }
+        final Account account = accountResult.get();
+        if (channelServerNode.isConnected(account)) {
+            log.error("Tried to connect to channel server while already connected");
+            c.close();
+            return;
+        }
+        account.setChannelId(channelServerNode.getChannelId());
+        c.setAccount(account);
+
+        // Load character data
+        final Optional<CharacterData> characterResult = DatabaseManager.characterAccessor().getCharacterById(characterId);
+        if (characterResult.isEmpty()) {
+            log.error("Could not retrieve character with ID : {}", characterId);
+            c.close();
+            return;
+        }
+        final CharacterData characterData = characterResult.get();
+        if (characterData.getAccountId() != migrationInfo.getAccountId()) {
+            log.error("Mismatching account IDs {}, {}", characterData.getAccountId(), migrationInfo.getAccountId());
+            c.close();
+            return;
+        }
+
+        if (spawnMap != null) {
+            characterData.getCharacterStat().setPosMap(spawnMap);
+            characterData.getCharacterStat().setPortal((byte) 0);
+        }
+
+        // Initialize User
+        final User user = new User(c, characterData);
+        user.setMessengerId(migrationInfo.getMessengerId()); // this is required before user connect
+        if (channelServerNode.isConnected(user)) {
+            log.error("Tried to connect to channel server while already connected");
+            c.close();
+            return;
+        }
+        c.setUser(user);
+        channelServerNode.addClient(c);
+        channelServerNode.notifyUserConnect(user);
+
+        // Initialize pets
+        final CharacterStat cs = user.getCharacterStat();
+        final long[] pets = new long[]{
+                cs.getPetSn1(), cs.getPetSn2(), cs.getPetSn3()
+        };
+        cs.setPetSn1(0);
+        cs.setPetSn2(0);
+        cs.setPetSn3(0);
+        // Resolve pets
+        for (long petSn : pets) {
+            final Optional<Tuple<Integer, Item>> itemEntryResult = user.getInventoryManager().getItemBySn(InventoryType.CASH, petSn);
+            if (itemEntryResult.isEmpty()) {
+                // Item not found
+                continue;
             }
-            final CharacterData characterData = characterResult.get();
-            if (characterData.getAccountId() != migrationInfo.getAccountId()) {
-                log.error("Mismatching account IDs {}, {}", characterData.getAccountId(), migrationInfo.getAccountId());
-                c.close();
-                return;
+            final Item item = itemEntryResult.get().getRight();
+            if (item.getItemType() != ItemType.PET || item.getDateExpire().isBefore(Instant.now())) {
+                // Invalid pet or expired
+                continue;
+            }
+            // Create pet and assign to user
+            final Pet pet = Pet.from(user, item);
+            user.addPet(pet, true);
+        }
+
+        // Initialize dragon
+        if (JobConstants.isDragonJob(user.getJob())) {
+            user.setDragon(new Dragon(user.getJob()));
+        }
+
+        // Initialize user data from MigrationInfo
+        user.getSecondaryStat().getTemporaryStats().putAll(migrationInfo.getTemporaryStats());
+        user.getSchedules().putAll(migrationInfo.getSchedules());
+        user.getSummoned().putAll(migrationInfo.getSummoned());
+        user.setEffectItemId(migrationInfo.getEffectItemId());
+        user.setAdBoard(migrationInfo.getAdBoard());
+        user.updatePassiveSkillData();
+        user.validateStat();
+        user.write(WvsContext.setGender(user.getGender()));
+        user.write(WvsContext.resetTownPortal());
+
+        // Resolve user field
+        final int fieldId = user.getCharacterStat().getPosMap();
+        final byte portalId = user.getCharacterStat().getPortal();
+        final Optional<Field> fieldResult = channelServerNode.getFieldById(fieldId);
+        final Field targetField = fieldResult.orElseGet(() -> {
+            log.error("Could not retrieve field ID : {} for character ID : {}, moving to {}", fieldId, user.getCharacterId(), 100000000);
+            return channelServerNode.getFieldById(100000000).orElseThrow(() -> new IllegalStateException("Could not resolve Field from ChannelServer"));
+        });
+        final Optional<PortalInfo> portalResult = targetField.getPortalById(portalId);
+        final PortalInfo targetPortal = portalResult.orElseGet(() -> {
+            log.error("Could not resolve portal : {} on field ID : {}", portalId, targetField.getFieldId());
+            return targetField.getPortalById(0).orElse(PortalInfo.EMPTY);
+        });
+
+        if (devLogin) {
+            user.write(DevPacket.worldList());
+        }
+
+        // Add user to field
+        ServerExecutor.submit(targetField, () -> {
+            // Set field packet sent here
+            user.warp(targetField, targetPortal, true, false);
+
+            // Initialize func keys and quickslot
+            final ConfigManager cm = user.getConfigManager();
+            user.write(WvsContext.macroSysDataInit(cm.getMacroSysData()));
+            user.write(FieldPacket.funcKeyMappedInit(cm.getFuncKeyMap()));
+            user.write(FieldPacket.quickslotMappedInit(cm.getQuickslotKeyMap()));
+            user.write(FieldPacket.petConsumeItemInit(cm.getPetConsumeItem()));
+            user.write(FieldPacket.petConsumeMpItemInit(cm.getPetConsumeMpItem()));
+
+            // Load messenger from central server
+            if (user.getMessengerId() != 0) {
+                channelServerNode.submitMessengerRequest(user, MessengerRequest.migrated());
             }
 
-            // Initialize User
-            final User user = new User(c, characterData);
-            user.setMessengerId(migrationInfo.getMessengerId()); // this is required before user connect
-            if (channelServerNode.isConnected(user)) {
-                log.error("Tried to connect to channel server while already connected");
-                c.close();
-                return;
+            // Load party from central server
+            final int partyId = user.getCharacterData().getPartyId();
+            if (partyId != 0) {
+                channelServerNode.submitPartyRequest(user, PartyRequest.loadParty(partyId));
             }
-            c.setUser(user);
-            channelServerNode.addClient(c);
-            channelServerNode.notifyUserConnect(user);
 
-            // Initialize pets
-            final CharacterStat cs = user.getCharacterStat();
-            final long[] pets = new long[]{
-                    cs.getPetSn1(), cs.getPetSn2(), cs.getPetSn3()
-            };
-            cs.setPetSn1(0);
-            cs.setPetSn2(0);
-            cs.setPetSn3(0);
-            // Resolve pets
-            for (long petSn : pets) {
-                final Optional<Tuple<Integer, Item>> itemEntryResult = user.getInventoryManager().getItemBySn(InventoryType.CASH, petSn);
-                if (itemEntryResult.isEmpty()) {
-                    // Item not found
-                    continue;
+            // Load guild from central server
+            final int guildId = user.getCharacterData().getGuildId();
+            if (guildId != 0) {
+                channelServerNode.submitGuildRequest(user, GuildRequest.loadGuild(guildId));
+            }
+
+            // Load memos
+            final List<Memo> memos = DatabaseManager.memoAccessor().getMemosByCharacterId(user.getCharacterId());
+            if (!memos.isEmpty()) {
+                user.write(MemoPacket.load(memos));
+            }
+
+            // Load friends
+            FriendHandler.loadFriends(user, (friendMap) -> {
+                user.write(FriendPacket.loadFriendDone(friendMap.values()));
+                final List<Integer> friendIds = friendMap.values().stream()
+                        .filter((friend) -> friend.getStatus() == FriendStatus.NORMAL)
+                        .map(Friend::getFriendId)
+                        .toList();
+                if (!friendIds.isEmpty()) {
+                    user.getConnectedServer().submitUserPacketBroadcast(friendIds, FriendPacket.notify(user.getCharacterId(), user.getChannelId(), false));
                 }
-                final Item item = itemEntryResult.get().getRight();
-                if (item.getItemType() != ItemType.PET || item.getDateExpire().isBefore(Instant.now())) {
-                    // Invalid pet or expired
-                    continue;
-                }
-                // Create pet and assign to user
-                final Pet pet = Pet.from(user, item);
-                user.addPet(pet, true);
-            }
-
-            // Initialize dragon
-            if (JobConstants.isDragonJob(user.getJob())) {
-                user.setDragon(new Dragon(user.getJob()));
-            }
-
-            // Initialize user data from MigrationInfo
-            user.getSecondaryStat().getTemporaryStats().putAll(migrationInfo.getTemporaryStats());
-            user.getSchedules().putAll(migrationInfo.getSchedules());
-            user.getSummoned().putAll(migrationInfo.getSummoned());
-            user.setEffectItemId(migrationInfo.getEffectItemId());
-            user.setAdBoard(migrationInfo.getAdBoard());
-            user.updatePassiveSkillData();
-            user.validateStat();
-            user.write(WvsContext.setGender(user.getGender()));
-            user.write(WvsContext.resetTownPortal());
-
-            // Resolve user field
-            final int fieldId = user.getCharacterStat().getPosMap();
-            final byte portalId = user.getCharacterStat().getPortal();
-            final Optional<Field> fieldResult = channelServerNode.getFieldById(fieldId);
-            final Field targetField = fieldResult.orElseGet(() -> {
-                log.error("Could not retrieve field ID : {} for character ID : {}, moving to {}", fieldId, user.getCharacterId(), 100000000);
-                return channelServerNode.getFieldById(100000000).orElseThrow(() -> new IllegalStateException("Could not resolve Field from ChannelServer"));
-            });
-            final Optional<PortalInfo> portalResult = targetField.getPortalById(portalId);
-            final PortalInfo targetPortal = portalResult.orElseGet(() -> {
-                log.error("Could not resolve portal : {} on field ID : {}", portalId, targetField.getFieldId());
-                return targetField.getPortalById(0).orElse(PortalInfo.EMPTY);
-            });
-
-            // Add user to field
-            ServerExecutor.submit(targetField, () -> {
-                // Set field packet sent here
-                user.warp(targetField, targetPortal, true, false);
-
-                // Initialize func keys and quickslot
-                final ConfigManager cm = user.getConfigManager();
-                user.write(WvsContext.macroSysDataInit(cm.getMacroSysData()));
-                user.write(FieldPacket.funcKeyMappedInit(cm.getFuncKeyMap()));
-                user.write(FieldPacket.quickslotMappedInit(cm.getQuickslotKeyMap()));
-                user.write(FieldPacket.petConsumeItemInit(cm.getPetConsumeItem()));
-                user.write(FieldPacket.petConsumeMpItemInit(cm.getPetConsumeMpItem()));
-
-                // Load messenger from central server
-                if (user.getMessengerId() != 0) {
-                    channelServerNode.submitMessengerRequest(user, MessengerRequest.migrated());
-                }
-
-                // Load party from central server
-                final int partyId = user.getCharacterData().getPartyId();
-                if (partyId != 0) {
-                    channelServerNode.submitPartyRequest(user, PartyRequest.loadParty(partyId));
-                }
-
-                // Load guild from central server
-                final int guildId = user.getCharacterData().getGuildId();
-                if (guildId != 0) {
-                    channelServerNode.submitGuildRequest(user, GuildRequest.loadGuild(guildId));
-                }
-
-                // Load memos
-                final List<Memo> memos = DatabaseManager.memoAccessor().getMemosByCharacterId(user.getCharacterId());
-                if (!memos.isEmpty()) {
-                    user.write(MemoPacket.load(memos));
-                }
-
-                // Load friends
-                FriendHandler.loadFriends(user, (friendMap) -> {
-                    user.write(FriendPacket.loadFriendDone(friendMap.values()));
-                    final List<Integer> friendIds = friendMap.values().stream()
-                            .filter((friend) -> friend.getStatus() == FriendStatus.NORMAL)
-                            .map(Friend::getFriendId)
-                            .toList();
-                    if (!friendIds.isEmpty()) {
-                        user.getConnectedServer().submitUserPacketBroadcast(friendIds, FriendPacket.notify(user.getCharacterId(), user.getChannelId(), false));
-                    }
-                });
             });
         });
     }

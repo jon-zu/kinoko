@@ -150,6 +150,22 @@ public final class CassandraCharacterAccessor extends CassandraAccessor implemen
     }
 
     @Override
+    public Optional<CharacterInfo> getFirstCharacterInfo() {
+        // Character IDs are partition keys, so finding the lowest ID requires a scan.
+        final ResultSet rows = getSession().execute(
+                selectFrom(getKeyspace(), tableName).columns(ACCOUNT_ID, CHARACTER_ID, CHARACTER_NAME)
+                        .build().setExecutionProfileName(CassandraConnector.PROFILE_ONE)
+        );
+        CharacterInfo first = null;
+        for (Row row : rows) {
+            if (first == null || row.getInt(CHARACTER_ID) < first.getCharacterId()) {
+                first = new CharacterInfo(row.getInt(ACCOUNT_ID), row.getInt(CHARACTER_ID), row.getString(CHARACTER_NAME));
+            }
+        }
+        return Optional.ofNullable(first);
+    }
+
+    @Override
     public Optional<CharacterInfo> getCharacterInfoByName(String name) {
         final ResultSet selectResult = getSession().execute(
                 selectFrom(getKeyspace(), tableName)

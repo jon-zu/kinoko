@@ -152,6 +152,21 @@ public final class SqliteCharacterAccessor extends SqliteAccessor implements Cha
     }
 
     @Override
+    public Optional<CharacterInfo> getFirstCharacterInfo() {
+        try (PreparedStatement ps = getConnection().prepareStatement(
+                "SELECT " + ACCOUNT_ID + ", " + CHARACTER_ID + ", " + CHARACTER_NAME +
+                        " FROM " + tableName + " ORDER BY " + CHARACTER_ID + " ASC LIMIT 1"
+        ); ResultSet rs = ps.executeQuery()) {
+            if (rs.next()) {
+                return Optional.of(new CharacterInfo(rs.getInt(ACCOUNT_ID), rs.getInt(CHARACTER_ID), rs.getString(CHARACTER_NAME)));
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return Optional.empty();
+    }
+
+    @Override
     public Optional<CharacterInfo> getCharacterInfoByName(String name) {
         try (PreparedStatement ps = getConnection().prepareStatement(
                 "SELECT " +
