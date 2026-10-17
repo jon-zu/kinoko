@@ -37,7 +37,12 @@ public final class MobProvider implements WzProvider {
         final Map<Integer, WzProperty> mobProperties = new HashMap<>(); // mobId -> mobProperty
         final Map<Integer, Tuple<Integer, WzProperty>> linkedMobs = new HashMap<>(); // mobId -> link, infoProp
         for (var mobEntry : source.getDirectory().getImages().entrySet()) {
-            final int mobId = Integer.parseInt(mobEntry.getKey().replace(".img", ""));
+            // Named images such as LevelHP.img contain shared data, not mob templates.
+            final String imageName = mobEntry.getKey().replace(".img", "");
+            if (!imageName.matches("[0-9]+")) {
+                continue;
+            }
+            final int mobId = Integer.parseInt(imageName);
             final WzProperty mobProperty = mobEntry.getValue().getProperty();
             if (!(mobEntry.getValue().getItem("info") instanceof WzProperty infoProp)) {
                 throw new ProviderError("Failed to resolve info property");

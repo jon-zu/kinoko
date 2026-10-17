@@ -237,8 +237,8 @@ public final class SkillInfo {
                         case lt -> {
                             rectMap.put(slv, WzProvider.getRect(statProp));
                         }
-                        case rb, hs, hit, ball, dateExpire -> {
-                            // skip; rb is handled by lt
+                        case rb, hs, hit, ball, dateExpire, price, extendPrice, reqGuildLevel, period, priceUnit -> {
+                            // skip metadata; rb is handled by lt
                         }
                         default -> {
                             if (!statMap.containsKey(stat)) {
@@ -306,8 +306,8 @@ public final class SkillInfo {
                     case lt -> {
                         rect = WzProvider.getRect(commonProps);
                     }
-                    case rb, hs, hit, ball, dateExpire -> {
-                        // skip; rb is handled by lt
+                    case rb, hs, hit, ball, dateExpire, price, extendPrice, reqGuildLevel, period, priceUnit -> {
+                        // skip metadata; rb is handled by lt
                     }
                     default -> {
                         expressions.put(stat, SkillExpression.from(WzProvider.getString(entry.getValue())));

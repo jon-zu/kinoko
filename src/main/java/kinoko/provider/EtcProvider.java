@@ -75,7 +75,15 @@ public final class EtcProvider implements WzProvider {
             if (!(entry.getValue() instanceof WzProperty setItemProp)) {
                 throw new ProviderError("Could not resolve set item info prop");
             }
-            setItemInfos.add(SetItemInfo.from(setItemProp));
+            final SetItemInfo setItemInfo = SetItemInfo.from(setItemProp);
+            for (var effect : setItemInfo.getEffect().values()) {
+                for (var option : effect.options()) {
+                    if (ItemProvider.getItemOptionInfo(option.id(), option.level()).isEmpty()) {
+                        throw new ProviderError("Could not resolve set %s item option %d at level %d", entry.getKey(), option.id(), option.level());
+                    }
+                }
+            }
+            setItemInfos.add(setItemInfo);
         }
     }
 

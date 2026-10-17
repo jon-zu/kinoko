@@ -78,10 +78,10 @@ public final class SkillProvider implements WzProvider {
                 }
                 final SkillInfo skillInfo = SkillInfo.from(skillId, skillProp);
 
-                if (!jobSkills.containsKey(job)) {
-                    jobSkills.put(job, new ArrayList<>());
+                // Non-job skills (e.g. guild skills in 9100.img) remain available by ID.
+                if (job != null) {
+                    jobSkills.computeIfAbsent(job, key -> new ArrayList<>()).add(skillInfo);
                 }
-                jobSkills.get(job).add(skillInfo);
                 skillInfos.put(skillId, skillInfo);
             }
         }

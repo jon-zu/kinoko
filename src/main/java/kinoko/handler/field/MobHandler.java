@@ -352,6 +352,14 @@ public final class MobHandler {
 
         // Special handling
         switch (skillType) {
+            case MOB_CONSUME, DISPEL_ITEM_OPTION -> {
+                // Compatibility placeholders: consuming mobs and nullifying item options
+                // are not implemented yet.
+            }
+            case TELEPORT -> {
+                // The controller reports the destination through MobMove / MovePath.
+                // No temporary stat or additional server-side effect is applied.
+            }
             case HEAL_M -> {
                 final List<Mob> targetMobs = new ArrayList<>();
                 if (si.getRect(slv) != null) {

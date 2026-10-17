@@ -172,11 +172,15 @@ public final class EquipStat {
             final Set<Integer> equippedItems = equipped.getItems().values().stream().map(Item::getItemId).collect(Collectors.toSet());
             equippedItems.retainAll(setItemInfo.getItems());
             for (int itemCount = 0; itemCount <= equippedItems.size(); itemCount++) {
-                final Map<ItemInfoType, Integer> effect = setItemInfo.getEffect().get(itemCount);
+                final SetItemInfo.Effect effect = setItemInfo.getEffect().get(itemCount);
                 if (effect == null) {
                     continue;
                 }
-                for (var entry : effect.entrySet()) {
+                for (var setOption : effect.options()) {
+                    stat.applyItemOption(setOption.id(), setOption.level());
+                    stat.applyItemOptionR(setOption.id(), setOption.level());
+                }
+                for (var entry : effect.stats().entrySet()) {
                     switch (entry.getKey()) {
                         case incSTR -> stat.incStr += entry.getValue();
                         case incDEX -> stat.incDex += entry.getValue();

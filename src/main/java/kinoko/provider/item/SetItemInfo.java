@@ -8,9 +8,24 @@ import java.util.*;
 
 public final class SetItemInfo {
     private final Set<Integer> items; // itemIds
-    private final Map<Integer, Map<ItemInfoType, Integer>> effect; // count -> (incStat -> incValue)
+    private final Map<Integer, Effect> effect; // required piece count -> bonuses
 
-    public SetItemInfo(Set<Integer> items, Map<Integer, Map<ItemInfoType, Integer>> effect) {
+    public record ItemOption(int id, int level) {
+        public ItemOption {
+            if (id <= 0 || level <= 0) {
+                throw new ProviderError("Invalid set item option ID %d or level %d", id, level);
+            }
+        }
+    }
+
+    public record Effect(Map<ItemInfoType, Integer> stats, List<ItemOption> options) {
+        public Effect {
+            stats = Map.copyOf(stats);
+            options = List.copyOf(options);
+        }
+    }
+
+    public SetItemInfo(Set<Integer> items, Map<Integer, Effect> effect) {
         this.items = items;
         this.effect = effect;
     }
@@ -19,7 +34,7 @@ public final class SetItemInfo {
         return items;
     }
 
-    public Map<Integer, Map<ItemInfoType, Integer>> getEffect() {
+    public Map<Integer, Effect> getEffect() {
         return effect;
     }
 
@@ -34,7 +49,7 @@ public final class SetItemInfo {
             items.add(itemId);
         }
         // Effect
-        final Map<Integer, Map<ItemInfoType, Integer>> effect = new HashMap<>();
+        final Map<Integer, Effect> effect = new HashMap<>();
         if (!(setItemProp.get("Effect") instanceof WzProperty effectList)) {
             throw new ProviderError("Could not resolve set item effect list");
         }
@@ -44,7 +59,30 @@ public final class SetItemInfo {
                 throw new ProviderError("Could not resolve set item effect prop");
             }
             final Map<ItemInfoType, Integer> stats = new EnumMap<>(ItemInfoType.class);
+            final List<ItemOption> options = new ArrayList<>();
             for (var statEntry : effectProp.getItems().entrySet()) {
+                if (statEntry.getKey().equals("incAllStat")) {
+                    final int value = WzProvider.getInteger(statEntry.getValue());
+                    for (ItemInfoType type : List.of(ItemInfoType.incSTR, ItemInfoType.incDEX, ItemInfoType.incINT, ItemInfoType.incLUK)) {
+                        stats.merge(type, value, Integer::sum);
+                    }
+                    continue;
+                }
+                if (statEntry.getKey().equals("Option")) {
+                    if (!(statEntry.getValue() instanceof WzProperty optionList)) {
+                        throw new ProviderError("Could not resolve set item option list for piece count %d", count);
+                    }
+                    for (var optionEntry : optionList.getItems().entrySet()) {
+                        if (!(optionEntry.getValue() instanceof WzProperty optionProp)) {
+                            throw new ProviderError("Could not resolve set item option %s", optionEntry.getKey());
+                        }
+                        options.add(new ItemOption(
+                                WzProvider.getInteger(optionProp.get("option")),
+                                WzProvider.getInteger(optionProp.get("level"))
+                        ));
+                    }
+                    continue;
+                }
                 if (ItemInfoType.isIgnored(statEntry.getKey())) {
                     throw new ProviderError("Unhandled set item effect stat : %s", statEntry.getKey());
                 }
@@ -54,9 +92,9 @@ public final class SetItemInfo {
                     continue;
                 }
                 final int value = WzProvider.getInteger(statEntry.getValue());
-                stats.put(type, value);
+                stats.merge(type, value, Integer::sum);
             }
-            effect.put(count, Collections.unmodifiableMap(stats));
+            effect.put(count, new Effect(stats, options));
         }
         return new SetItemInfo(
                 Collections.unmodifiableSet(items),

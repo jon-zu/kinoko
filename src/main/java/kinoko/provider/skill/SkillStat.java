@@ -87,6 +87,13 @@ public enum SkillStat {
     overChargeR,
     disCountR,
 
+    // GUILD METADATA --------------------------------------------------------------------------------------------------
+    price,
+    extendPrice,
+    reqGuildLevel,
+    period,
+    priceUnit,
+
     // SPECIAL ---------------------------------------------------------------------------------------------------------
     lt,
     rb,

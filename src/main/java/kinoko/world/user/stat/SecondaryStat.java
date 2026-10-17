@@ -257,16 +257,21 @@ public final class SecondaryStat {
         this.speed = 100;
         this.jump = 100;
 
+        final SecondaryStatRateOption option = new SecondaryStatRateOption();
         // Set items
         for (SetItemInfo setItemInfo : EtcProvider.getSetItemInfos()) {
             final Set<Integer> equippedItems = realEquip.values().stream().map(Item::getItemId).collect(Collectors.toSet());
             equippedItems.retainAll(setItemInfo.getItems());
             for (int itemCount = 0; itemCount <= equippedItems.size(); itemCount++) {
-                final Map<ItemInfoType, Integer> effect = setItemInfo.getEffect().get(itemCount);
+                final SetItemInfo.Effect effect = setItemInfo.getEffect().get(itemCount);
                 if (effect == null) {
                     continue;
                 }
-                for (var entry : effect.entrySet()) {
+                for (var setOption : effect.options()) {
+                    this.applyItemOption(setOption.id(), setOption.level());
+                    option.applyItemOptionR(setOption.id(), setOption.level());
+                }
+                for (var entry : effect.stats().entrySet()) {
                     switch (entry.getKey()) {
                         case incPAD -> this.pad += entry.getValue();
                         case incPDD -> this.pdd += entry.getValue();
@@ -292,7 +297,6 @@ public final class SecondaryStat {
         }
 
         // Equip stats
-        final SecondaryStatRateOption option = new SecondaryStatRateOption();
         for (var item : realEquip.values()) {
             // Resolve item and item info
             final Optional<ItemInfo> itemInfoResult = ItemProvider.getItemInfo(item.getItemId());
@@ -594,7 +598,7 @@ public final class SecondaryStat {
         private int evaR;
         private int criR;
 
-        private void applyItemOptionR(short itemOptionId, int optionLevel) {
+        private void applyItemOptionR(int itemOptionId, int optionLevel) {
             final Optional<ItemOptionLevelData> itemOptionResult = ItemProvider.getItemOptionInfo(itemOptionId, optionLevel);
             if (itemOptionResult.isEmpty()) {
                 return;
